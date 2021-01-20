@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Graffito</string>
+    <string name="greeting">Hello, Graffito!</string>
+</resources>
