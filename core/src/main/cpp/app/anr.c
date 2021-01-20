@@ -95,7 +95,7 @@ static int open_trace_file(const char* dir) {
     snprintf(trace, sizeof(trace), "%s/trace-%"PRIi64".txt", dir, ts);
 
     int fd;
-    if (-1 == (fd = TEMP_FAILURE_RETRY(open(trace, O_RDWR | O_CREAT | O_TRUNC, S_IRWXU | S_IRGRP | S_IROTH)))) {
+    if (-1 == (fd = TEMP_FAILURE_RETRY(open(trace, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, S_IRWXU | S_IRGRP | S_IROTH)))) {
         LOGD("failed to open %s: %s", trace, strerror(errno));
         goto error;
     }
@@ -138,13 +138,18 @@ static void anr_rethrow(void) {
     }
 }
 
+#define fd_dev_null (open_dev_null())
+
+static int open_dev_null() {
+    static int fd = -1;
+    return fd > -1 ? fd : (fd = TEMP_FAILURE_RETRY(open("/dev/null", O_RDWR)));
+}
+
 /**
  * Dump ANR trace
  */
 static void* anr_dumper(void* args) {
     UNUSED(args);
-
-    pthread_detach(pthread_self());
 
     JNIEnv* env = NULL;
     JavaVMAttachArgs attach_args = {
@@ -153,6 +158,7 @@ static void* anr_dumper(void* args) {
         .group = NULL
     };
 
+    pthread_detach(pthread_self());
     if (JNI_OK != (*jvm)->AttachCurrentThread(jvm, &env, &attach_args)) {
         goto exit;
     }
@@ -171,7 +177,9 @@ static void* anr_dumper(void* args) {
     uint64_t flag = 0;
 
     for (;;) {
-        TEMP_FAILURE_RETRY(read(fd_event, &flag, sizeof(flag)));
+        if (-1 == TEMP_FAILURE_RETRY(read(fd_event, &flag, sizeof(flag)))) {
+            break;
+        }
 
         if ((fd = open_trace_file(files)) < 0) {
             continue;
@@ -191,19 +199,18 @@ static void* anr_dumper(void* args) {
         }
         LOGD("runtime dump complete");
 
-        anr_rethrow();
-
     done:
         fflush(NULL);
-        dup2(-1, STDERR_FILENO);
+        dup2(fd_dev_null, STDERR_FILENO);
         close(fd);
+        anr_rethrow();
     }
 
+    LOGD("trace dumper quit");
     (*jvm)->DetachCurrentThread(jvm);
 
 exit:
     close(fd_event);
-    fd_event = -1;
     return NULL;
 }
 
