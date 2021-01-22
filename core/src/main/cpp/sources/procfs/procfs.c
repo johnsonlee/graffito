@@ -6,11 +6,17 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <linux/sched.h>
 #include <sys/param.h>
 
 #include "defs.h"
 #include "log.h"
-#include "proc.h"
+#include "procfs.h"
+#include "text.h"
+
+#ifndef TASK_COMM_LEN
+#define TASK_COMM_LEN 24
+#endif
 
 #define MAPS_FMT "%"SCNxPTR"-%*"SCNxPTR" %*4s %"SCNxPTR" %*x:%*x %*d%n"
 
@@ -21,31 +27,21 @@
 extern "C" {
 #endif
 
-const char* procfs_get_thread_name(pid_t tid, char* buf, size_t size) {
+const char* procfs_get_task_comm(pid_t tid, char* buf, size_t size) {
     if (NULL == buf) {
         return NULL;
     }
 
-    char comm[256];
-    snprintf(comm, sizeof(comm), "/proc/%d/comm", tid);
-
-    int fd;
-    if (-1 == (fd = TEMP_FAILURE_RETRY(open(comm, O_RDONLY | O_CLOEXEC)))) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/self/task/%d/comm", tid);
+    char comm[TASK_COMM_LEN];
+    ssize_t len = file_read_fully(path, comm, sizeof(comm));
+    if (len < 0) {
         return NULL;
     }
 
-    ssize_t len;
-    if (-1 == (len = TEMP_FAILURE_RETRY(read(fd, buf, size)))) {
-       close(fd);
-       return NULL;
-    }
-
-    char* end = buf + len;
-    while (end > buf && isspace(*(end - 1))) end--;
-    *end = '\0';
-
-    close(fd);
-    return buf;
+    strncpy(buf, comm, MIN((size_t) len, size));
+    return strrtrim(buf);
 }
 
 pid_t procfs_get_tid(int (*select)(pid_t)) {
@@ -123,22 +119,13 @@ int procfs_get_map_address(const char* pathname, uintptr_t* address) {
     uintptr_t offset;
     int pos;
     char* str;
-    char* end;
     int found = 0;
 
     while (fgets(line, sizeof(line), maps)) {
         if (2 != sscanf(line, MAPS_FMT, address, &offset, &pos) || 0 != offset) {
             continue;
         }
-
-        // trim leading whitespace
-        str = line + pos;
-        end = str + strlen(str);
-        while (str < end && isspace((unsigned char) *str)) str++;
-        // trim tailing whitespace
-        while (str < end && isspace((unsigned char) *(end - 1))) end--;
-        *end = '\0';
-
+        str = strtrim(line + pos);
         if (0 == strcmp(str, pathname)) {
             LOGD("%s", line);
             found = 1;

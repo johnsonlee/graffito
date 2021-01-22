@@ -15,7 +15,7 @@
 
 #include "log.h"
 #include "linker.h"
-#include "proc.h"
+#include "procfs.h"
 #include "queue.h"
 
 #pragma clang diagnostic push

@@ -1,15 +1,22 @@
 package io.johnsonlee.graffito
 
-import android.content.ContentProvider
-import android.content.ContentValues
+import android.content.*
 import android.database.Cursor
 import android.net.Uri
+import android.os.IBinder
+import android.util.Log
 
-class GraffitoProvider : ContentProvider() {
+class GraffitoProvider : ContentProvider(), ServiceConnection {
 
-    override fun onCreate(): Boolean {
-        return true
+    private companion object {
+        const val TAG = "GraffitoProvider"
+
+        init {
+            System.loadLibrary("graffito")
+        }
     }
+
+    override fun onCreate(): Boolean = bindService()
 
     override fun query(
         uri: Uri,
@@ -32,10 +39,17 @@ class GraffitoProvider : ContentProvider() {
         selectionArgs: Array<out String>?
     ): Int = 0
 
-    private companion object {
-        init {
-            System.loadLibrary("graffito")
-        }
+    override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+        Log.i(TAG, "Service $name connected")
+    }
+
+    override fun onServiceDisconnected(name: ComponentName?) {
+        Log.w(TAG, "Service $name disconnected")
+    }
+
+    private fun bindService(): Boolean {
+        val service = Intent(context, TraceService::class.java)
+        return context?.bindService(service, this, Context.BIND_AUTO_CREATE) == true
     }
 
 }

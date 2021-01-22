@@ -19,7 +19,7 @@
 #include "defs.h"
 #include "art.h"
 #include "log.h"
-#include "proc.h"
+#include "procfs.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunreachable-code"
@@ -95,7 +95,9 @@ static int open_trace_file(const char* dir) {
     snprintf(trace, sizeof(trace), "%s/trace-%"PRIi64".txt", dir, ts);
 
     int fd;
-    if (-1 == (fd = TEMP_FAILURE_RETRY(open(trace, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, S_IRWXU | S_IRGRP | S_IROTH)))) {
+    int flags = O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC;
+    mode_t mode = S_IRWXU | S_IRGRP | S_IROTH;
+    if (-1 == (fd = TEMP_FAILURE_RETRY(open(trace, flags, mode)))) {
         LOGD("failed to open %s: %s", trace, strerror(errno));
         goto error;
     }
@@ -114,7 +116,7 @@ static int check_signal_catcher_status(const char* line) {
 
 static int select_signal_catcher(pid_t tid) {
     char name[16];
-    procfs_get_thread_name(tid, name, sizeof(name));
+    procfs_get_task_comm(tid, name, sizeof(name));
     if (0 != strcmp("Signal Catcher", name)) {
         return -1;
     }
@@ -136,13 +138,6 @@ static void anr_rethrow(void) {
     if (tid >= 0) {
         syscall(SYS_tgkill, getpid(), tid, SIGQUIT);
     }
-}
-
-#define fd_dev_null (open_dev_null())
-
-static int open_dev_null() {
-    static int fd = -1;
-    return fd > -1 ? fd : (fd = TEMP_FAILURE_RETRY(open("/dev/null", O_RDWR)));
 }
 
 /**
